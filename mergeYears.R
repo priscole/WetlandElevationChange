@@ -1,3 +1,8 @@
+# this R-script is a follow-up to "wetlandsProcessing.py"
+# for the purpose of creating a master table from the
+# ArcGIS analysis outputs in the form of several CSV's
+
+
 library(reshape2)
 library(stringr)
 library(plyr)

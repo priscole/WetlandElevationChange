@@ -70,7 +70,6 @@ def sepBySetNewGDB():
 						arcpy.FeatureClassToFeatureClass_conversion(FC, endWS, 
 							out_name, "SET_num = " + str(num))
 						print("A new FC was created in ElevCap.gdb for" + FC + "SET " + str(num))
-
 		else:
 			arcpy.FeatureClassToFeatureClass_conversion(FC, endWS, FC)
 			print("Copied FC: " + FC + "to ElevCap.gdb")
@@ -91,6 +90,9 @@ def ElevationField():
 			# convert feet to meters in DEM's
 			if "Field3" in column.name:
 				arcpy.CalculateField_management(FC, "EBK_Elev", "!Field3!/3.2808", "PYTHON_9.3")
+
+
+#############
 
 # create 30m buffers for each FC, store in Temp.gdb (WS = endWS)
 def Buff30m():
