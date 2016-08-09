@@ -16,25 +16,17 @@ class ParametersArcPy(object):
 		self.inFolder = arcpy.GetParameterAsText(1) #type folder
 		self.outFolder = arcpy.GetParameterAsText(2) #type folder
 		self.outCSV = arcpy.GetParameterAsText(3) #type string
-		self.outGDB = arcpy.GetParameterAsText(4) #type GDB (optional) - default to in_memory
-		self.projection = arcpy.GetParameterAsText(5) #type int (optional)
-		self.barriers = arcpy.GetParameterAsText(6) #type file (optional)
-		
+		self.outGDB = arcpy.GetParameterAsText(4) #type data element - intermediate files to in_memory
+			#reserved exclusively for final analysis points merged with final table
+			#maybe final study area polygons too???
+		self.projection = arcpy.GetParameterAsText(5) #type int (optional) - default Delaware SP (m)
+		#self.barriers = arcpy.GetParameterAsText(6) #type file (optional)
+			#reserve for future updates with alternative interpolation methods (spline w/ barriers)
+
 params = ParametersArcPy()
 
 def makeFullFCPath(Path, Name):
 	return Path + "\\" + Name
-
-def setWorkspace(WS):
-	print "Setting workspace to " + WS
-	arcpy.env.workspace = WS
-
-def listFC(prefix="",suffix=""):
-	result = list() 
-	for FC in arcpy.ListFeatureClasses():
-		if FC.startswith(prefix) and FC.endswith(suffix):
-			result.append(FC)
-	return result
 
 def setSR(params.projection):
 	if params.projection == "":
@@ -52,3 +44,11 @@ SR = setSR(params.projection)
 # 		self.outCSV =  "WetlandElevationChange_DEMO.csv"
 # 		self.projection = arcpy.SpatialReference(103017)
 # 		self.barriers =  "Rivers.shp"
+
+metaDataTable = {}
+
+with open(params.metaDataTable, 'rb') as csvfile:
+	tableReader = csv.reader(csvfile)
+	for row in tableReader:
+		metaDataTable[row[0]] = [row[1:]]
+
