@@ -1,1 +1,4 @@
 FileName,Watershed,Year,ElevationField,ElevationUnits,SetField,OtherGroup
+DennisWCT,Dennis,2011,Elevation,m,SET_num,
+DennisWCT,Dennis,2012,Elevation,m,SET_num,
+DennisWCT,Dennis,2011,Elevation,m,,2

@@ -47,8 +47,25 @@ SR = setSR(params.projection)
 
 metaDataTable = {}
 
-with open(params.metaDataTable, 'rb') as csvfile:
-	tableReader = csv.reader(csvfile)
+metaDataTable = []
+with open(myTable, 'rb') as csvfile:
+	tableReader = csv.DictReader(csvfile)
 	for row in tableReader:
-		metaDataTable[row[0]] = [row[1:]]
+		metaDataTable.append(row)
+
+# myTable = "C:\Users\Priscole\Documents\code\GISPython\WetlandElevationChangeTable.csv"
+
+isNull = ["null", "NULL", "NA", "na", "N/A", "n/a", "", " "]
+
+def createGroups(metaDict):
+	groups = {}
+	for fc in metaDict:
+		if fc['OtherGroup'] not in isNull and fc['OtherGroup'] not in groups:
+			groups[fc['OtherGroup']] = [fc['FileName']]
+		elif fc['OtherGroup'] not in isNull and fc['OtherGroup'] in groups:
+			groups[fc['OtherGroup']].append(fc['FileName'])
+		elif 
+	return groups
+
+
 
