@@ -45,27 +45,25 @@ SR = setSR(params.projection)
 # 		self.projection = arcpy.SpatialReference(103017)
 # 		self.barriers =  "Rivers.shp"
 
-metaDataTable = {}
-
-metaDataTable = []
-with open(myTable, 'rb') as csvfile:
-	tableReader = csv.DictReader(csvfile)
-	for row in tableReader:
-		metaDataTable.append(row)
-
-# myTable = "C:\Users\Priscole\Documents\code\GISPython\WetlandElevationChangeTable.csv"
+def csvToDictList(myTable):
+	metaDataTable = []
+	with open(myTable, 'rb') as csvfile:
+		tableReader = csv.DictReader(csvfile)
+		for row in tableReader:
+			metaDataTable.append(row)
+	return metaDataTable
 
 isNull = ["null", "NULL", "NA", "na", "N/A", "n/a", "", " "]
 
-def createGroups(metaDict):
-	groups = {}
-	for fc in metaDict:
-		if fc['OtherGroup'] not in isNull and fc['OtherGroup'] not in groups:
-			groups[fc['OtherGroup']] = [fc['FileName']]
-		elif fc['OtherGroup'] not in isNull and fc['OtherGroup'] in groups:
-			groups[fc['OtherGroup']].append(fc['FileName'])
-		elif 
-	return groups
+# def createGroups(metaDict):
+# 	groups = {}
+# 	for fc in metaDict:
+# 		if fc['OtherGroup'] not in isNull and fc['OtherGroup'] not in groups:
+# 			groups[fc['OtherGroup']] = [fc['FileName']]
+# 		elif fc['OtherGroup'] not in isNull and fc['OtherGroup'] in groups:
+# 			groups[fc['OtherGroup']].append(fc['FileName'])
+# 		elif 
+# 	return groups
 
 
 

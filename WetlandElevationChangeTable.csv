@@ -1,4 +1,4 @@
-FileName,Watershed,Year,ElevationField,ElevationUnits,SetField,OtherGroup
-DennisWCT,Dennis,2011,Elevation,m,SET_num,
-DennisWCT,Dennis,2012,Elevation,m,SET_num,
-DennisWCT,Dennis,2011,Elevation,m,,2
+Name,Date,ElevationField,StudyAreaFieldName,SubStudyAreaFieldName
+DennisWCT,2011,Elevation,Watershed,SET_num
+MA2_LT12,1/20/2013,Elev_adj,Stream,Tributary
+Delmarva,Spring,Ortho_height,Region,
