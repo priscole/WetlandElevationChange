@@ -1,4 +1,4 @@
-Name,Date,ElevationField,StudyAreaFieldName,SubStudyAreaFieldName
+Name,Date,ElevationField,SAFieldName,SubSAFieldName
 DennisWCT,2011,Elevation,Watershed,SET_num
 MA2_LT12,1/20/2013,Elev_adj,Stream,Tributary
 Delmarva,Spring,Ortho_height,Region,

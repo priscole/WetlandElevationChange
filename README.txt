@@ -18,14 +18,14 @@ Type - Text
 Nullable - False, cannot contain null values
 Desc - The name of the field containing elevations in meters to be used in the analysis. Field name must match exactly. Aliases cannot be used. Elevations not in meters will cause incorrect results. 
 
-StudyAreaFieldName
+SAFieldName
 ##################
 Type - Text
 Nullable - False, cannot contain null values
 Desc - Field name in the dataset indicating the top level group for analysis, such as watershed (Dennis), stream (Christinia), or region (Delmarva Peninsula). Can be further refined by the Sub-Study Area (see below). If only one study area exists, a new data column must be created and populated with a common value.
 
-SubStudyAreaFieldName
+SubSAFieldName
 #####################
-Type - Text
+Type - Text!!!!!!!! - Test data is number not string!!!!!!!
 Null - True, optional field 
 Desc - Field name in the dataset containing additional information for how to sub-divide the study area, such as SET number, tributary, sub-region, etc. Non-spatially contiguous groups will not be evaluated, so make sure that contents of sub-groups overlap each other in space.

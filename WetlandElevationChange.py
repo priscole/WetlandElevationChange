@@ -18,10 +18,12 @@ outGDB = arcpy.GetParameterAsText(4) #type data element - optional or in_memory?
 projection = arcpy.GetParameterAsText(5) #type int (optional) - default Delaware SP (m)
 
 arcpy.env.workspace = inWorkspace
+mxd = arcpy.mapping.MapDocument("current")
+df = arcpy.mapping.ListDataFrames(mxd)[0]
 
 isNull = ["null", "NULL", "NA", "na", "N/A", "n/a", "", " "]
-requiredFields = ["Name", "Date", "ElevationField", "StudyAreaFieldName"]
-optionalField = "SubStudyAreaFieldName"
+requiredFields = ["Name", "Date", "ElevationField", "SAFieldName"]
+optionalField = "SubSAFieldName"
 
 def makeFullPath(Path, Name):
 	return Path + "\\" + Name
@@ -52,13 +54,11 @@ def listInputFiles(inWorkspace):
 	return fileList	
 
 def addLayerToMap(layer):
-	mxd = arcpy.mapping.MapDocument("current")
-	df = arcpy.mapping.ListDataFrames(mxd)[0]
 	addLayer = arcpy.mapping.Layer(layer)
 	arcpy.mapping.AddLayer(df, addLayer)
 
-def writeFileNameIntoTable():
-	pass
+def clearSelectedFeatures(layerName):
+	arcpy.SelectLayerByAttribute_management(layerName, "CLEAR_SELECTION")
 
 ##############################################################################
 #Handle metadata table & verify with file names
@@ -104,16 +104,16 @@ def testMatchingInputs(fileList, readTable):
 
 #makes list of grouping fields per each file (as per metadata)
 def groupingFieldsFromMetaData(metaDataRow):
-	groupFields = [metaDataRow["StudyAreaFieldName"]]
-	if metaDataRow["SubStudyAreaFieldName"] not in isNull:
-		groupFields.append(metaDataRow["SubStudyAreaFieldName"])
+	groupFields = [metaDataRow["SAFieldName"]]
+	if metaDataRow["SubSAFieldName"] not in isNull:
+		groupFields.append(metaDataRow["SubSAFieldName"])
 	return groupFields
 
 def groupingFieldsFromMetaDataForConvexHull(metaDataRow):
 	groupFields = []
-	if metaDataRow["SubStudyAreaFieldName"] not in isNull:
-		groupFields.append(metaDataRow["SubStudyAreaFieldName"])
-	groupFields.append(metaDataRow["StudyAreaFieldName"])
+	if metaDataRow["SubSAFieldName"] not in isNull:
+		groupFields.append(metaDataRow["SubSAFieldName"])
+	groupFields.append(metaDataRow["SAFieldName"])
 	return groupFields
 
 #reads into file to assemble its unique groups as per grouping fields
@@ -134,9 +134,10 @@ def createAnalysisGroups(readTable):
 				analysisGroups[group] = [metaDataRow]
 	return analysisGroups
 
-def parseAnalysisGroups(analysisGroup, *fieldStrings):
-	for groupDict in analysisGroup:
-		simplifiedGroup = {k:groupDict[k] for k in fieldStrings}
+def subsetAnalysisGroups(analysisGroupList, *fieldStrings):
+	simplifiedGroup = []
+	for groupDict in analysisGroupList:
+		simplifiedGroup.append({k:groupDict[k] for k in fieldStrings})
 	return simplifiedGroup
 
 
@@ -168,6 +169,29 @@ def envelopeBuffer(readTable):
 			outputPath = makeFullPath(outGDB, row["Name"]) + "_buff")		
 		row["Buff"] = row["Name"] + "_buff"
 
+#feed ONE groupKey ("Dennis", 1) from organizedBuffs
+#should SubSAField be a string or int???? -Makes HUGE diff in SQL
+#Handle case len(groupKey) = 1, like ('Maurice',)
+def intersectBufferGroups(groupKey):
+	groupInfo = []
+	for metadataDicts in organizedBuffs[groupKey]:
+		groupInfo.append(
+			(metadataDicts["Buff"], 
+				metadataDicts["SAFieldName"], 
+				metadataDicts["SubSAFieldName"]))
+	Buffers = []
+	for f in groupInfo:
+		arcpy.SelectLayerByAttribute_management(
+			in_layer_or_view = f[0], 
+			selection_type = "NEW_SELECTION",  
+			where_clause = "{0} = '{1}' AND {2} = {3}".format(f[1], groupKey[0], f[2], groupKey[1]))
+		Buffers.append(f[0])
+	arcpy.Intersect_analysis(
+		in_features = Buffers, 
+		out_feature_class = makeFullPath(outGDB, groupKey[0] + str(groupKey[1]) + "_inter"), 
+		join_attributes = "ALL")
+	return groupKey[0] + str(groupKey[1]) + "_inter"
+
 
 ##################################################################################
 #Interpoloate & Extract
@@ -184,25 +208,8 @@ def interpolateSubRegion(metaDataRow, outputPath, tupleRegionSubRegion, readTabl
 			row["EBK"] = outName
 	return EBK
 
-##########################################################################
-#for unique group: 
-	#interpolate
-#for each file	
-	#envelope (convex hull)
-	#buffer envelope
-	#write file name into buffer
-	#intersect buffers by group (select base on group --> intersect)
-	#merge intersects back together (maintain proper names)
-	#create fishnet w/in polygons
-		#assemble master table format
-#loop over interpoliations, extract value by point
-	#write into master table
-
-### Does it make sense to use grouping field in convex hull?
-
-
 ############################################################################
-#Run Program
+#Execute Functions
 
 SR = setSR(projection)
 
@@ -218,5 +225,12 @@ analysisGroups = createAnalysisGroups(readTable)
 
 envelopeBuffer(readTable)
 bufferGroups = createAnalysisGroups(readTable)
+organizedBuffs = {group:subsetAnalysisGroups(bufferGroups[group], 
+	"Buff", "SAFieldName", "SubSAFieldName") for group in bufferGroups}
 
-for buff in bufferGroups[('Dennis, 1')]
+intersects = []
+for group in organizedBuffs: 
+	inter = intersectBufferGroups(group)
+	intersects.append(inter)
+
+
