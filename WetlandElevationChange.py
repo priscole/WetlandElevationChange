@@ -8,14 +8,20 @@
 # with optional Spline with barriers if provided.
 #-------------------------------------------------------------
 
-import arcpy, csv, os
+import arcpy, csv
 
-metadataTable = arcpy.GetParameterAsText(0) #type file
-inWorkspace = arcpy.GetParameterAsText(1) #type folder
-outFolder = arcpy.GetParameterAsText(2) #type folder
-outCSV = arcpy.GetParameterAsText(3) #type string
-outGDB = arcpy.GetParameterAsText(4) #type data element - optional or in_memory?
-projection = arcpy.GetParameterAsText(5) #type int (optional) - default Delaware SP (m)
+# metadataTable = arcpy.GetParameterAsText(0) #type file
+# inWorkspace = arcpy.GetParameterAsText(1) #type folder
+# outFolder = arcpy.GetParameterAsText(2) #type folder
+# outCSV = arcpy.GetParameterAsText(3) #type string
+# outGDB = arcpy.GetParameterAsText(4) #type data element - optional or in_memory?
+# projection = arcpy.GetParameterAsText(5) #type int (optional) - default Delaware SP (m)
+
+
+metadataTable = r'C:\Users\Priscole\Documents\code\GISPython\WetlandElevationChangeTable_demo.csv'
+outGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTestTemp.gdb'
+inWorkspace = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTest.gdb'
+
 
 arcpy.env.workspace = inWorkspace
 mxd = arcpy.mapping.MapDocument("current")
@@ -37,6 +43,14 @@ def setSR(projection):
 	else: 
 		arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(projection)
 
+def testProjection(pointFile):
+	pass
+
+def reprojectFile(pointFile):
+	pass
+
+def setMapProjection():
+	pass
 #############################################################################
 #List input files according to workspace type
 
@@ -56,6 +70,10 @@ def listInputFiles(inWorkspace):
 def addLayerToMap(layer):
 	addLayer = arcpy.mapping.Layer(layer)
 	arcpy.mapping.AddLayer(df, addLayer)
+
+def removeLayerFromMap(layer):
+	removeLayer = arcpy.mapping.Layer(layer)
+	arcpy.mapping.RemoveLayer(df, removeLayer)
 
 def clearSelectedFeatures(layerName):
 	arcpy.SelectLayerByAttribute_management(layerName, "CLEAR_SELECTION")
@@ -159,6 +177,7 @@ def bufferPolygons(inputPath, outputPath, bufferDistanceInMeters=30):
 		buffer_distance_or_field = str(bufferDistanceInMeters) + " Meters")
 
 def envelopeBuffer(readTable):
+	convexHulls = []
 	for row in readTable:
 		convexHull = calculateConvexHull(
 			inputPath = makeFullPath(arcpy.env.workspace, row["Name"]),
@@ -168,13 +187,15 @@ def envelopeBuffer(readTable):
 			inputPath = convexHull,
 			outputPath = makeFullPath(outGDB, row["Name"]) + "_buff")		
 		row["Buff"] = row["Name"] + "_buff"
+		convexHulls.append(convexHull)
+	return convexHulls
 
 #feed ONE groupKey ("Dennis", 1) from organizedBuffs
 #should SubSAField be a string or int???? -Makes HUGE diff in SQL
 #Handle case len(groupKey) = 1, like ('Maurice',)
 def intersectBufferGroups(groupKey):
 	groupInfo = []
-	for metadataDicts in organizedBuffs[groupKey]:
+	for metadataDicts in analysisGroups[groupKey]:
 		groupInfo.append(
 			(metadataDicts["Buff"], 
 				metadataDicts["SAFieldName"], 
@@ -192,26 +213,127 @@ def intersectBufferGroups(groupKey):
 		join_attributes = "ALL")
 	return groupKey[0] + str(groupKey[1]) + "_inter"
 
+def makeStudyAreas(intersects):
+	arcpy.Merge_management(
+		inputs = intersects, 
+		output = makeFullPath(outGDB, "StudyAreas"))
+
+##################################################################################
+#Make Analysis Points
+
+def createFishNet():
+	desc = arcpy.Describe("StudyAreas")
+	arcpy.CreateFishnet_management(
+		out_feature_class = makeFullPath(outGDB, "Fishnet"), 
+		origin_coord = str(desc.extent.lowerLeft), 
+		y_axis_coord = str(desc.extent.XMin) + " " + str(desc.extent.YMax + 10),
+		cell_width = "35",
+		cell_height = "35",
+		number_rows = "0",
+		number_columns = "0",
+		corner_coord = str(desc.extent.upperRight),
+		labels = "LABELS",
+		template = "#",
+		geometry_type = "POLYLINE")
+	return makeFullPath(outGDB, "Fishnet_label")
+
+def makeAnalysisPoints(fishnet):
+	APoints = arcpy.SpatialJoin_analysis(
+		target_features = fishnet, 
+		join_features = "StudyAreas", 
+		out_feature_class = makeFullPath(outGDB, "AnalysisPoints"), 
+		join_operation = "JOIN_ONE_TO_MANY", 
+		join_type = "KEEP_COMMON")
+	return APoints
 
 ##################################################################################
 #Interpoloate & Extract
 
-def interpolateSubRegion(metaDataRow, outputPath, tupleRegionSubRegion, readTable):
-	outName = metaDataRow["Name"] + "_ebk"
-	EBK = arcpy.EmpiricalBayesianKriging_ga(
-		in_features = metaDataRow["Name"], 
-		z_field = metaDataRow["ElevationField"], 
-		out_ga_layer = '', 
-		out_raster = makeFullPath(outputPath, outName))
-	for row in readTable:
-		if ["Name"] == metaDataRow["Name"]:
-			row["EBK"] = outName
-	return EBK
+class DataSet(object):
+	def __init__(self, metaDataDict):
+		self.metaDataDict = metaDataDict
+		self.name = metaDataDict["Name"]
+		self.date = metaDataDict["Date"]
+		self.elevationField = metaDataDict["ElevationField"]
+		self.saFieldName = metaDataDict["SAFieldName"]
+		self.subSAFieldName = metaDataDict["SubSAFieldName"]
+
+	def nameForGroup(self, groupKey):
+		return groupKey[0] + str(groupKey[1]) + self.name
+
+	def nameOfEBKOut(self, groupKey):
+		return self.nameForGroup(groupKey) + "_GA"
+
+	def nameOfLayerOut(self, groupKey):
+		return self.nameForGroup(groupKey)
+
+class InterpolationTask(object):
+	def __init__(self, groupKey, dataset):
+		self.groupKey = groupKey
+		self.dataset = dataset
+		self.saFieldValue = groupKey[0]
+		self.subSAFieldValue = groupKey[1]
+
+	def selectionWhereClause(self):
+		return "{0} = '{1}' AND {2} = {3}".format(
+			self.dataset.saFieldName, 
+			self.saFieldValue, 
+			self.dataset.subSAFieldName, 
+			self.subSAFieldValue)
+
+	def createGroupLayer(self):
+		arcpy.MakeFeatureLayer_management(
+			in_features = self.dataset.name, 
+			out_layer = self.dataset.nameOfLayerOut(self.groupKey),  
+			where_clause = self.selectionWhereClause())
+
+	def runInterpolationOnGroupLayer(self):
+		EBK = arcpy.EmpiricalBayesianKriging_ga(
+			in_features = self.dataset.nameOfLayerOut(self.groupKey), 
+			z_field = self.dataset.elevationField, 
+			out_ga_layer = "", 
+			out_raster = makeFullPath(outGDB, self.dataset.nameOfEBKOut(self.groupKey)),
+			cell_size="", 
+			transformation_type="NONE", 
+			max_local_points="100", 
+			overlap_factor="1", 
+			number_semivariograms="100", 
+			search_neighborhood="", 
+			output_type="PREDICTION", 
+			quantile_value="0.5", 
+			threshold_type="EXCEED", 
+			probability_threshold="", 
+			semivariogram_model_type="POWER")
+
+	def run(self):
+		self.createGroupLayer()
+		self.runInterpolationOnGroupLayer()
+
+def interpolateByGroup(groupKey):
+	GAs = []
+	for f in analysisGroups[groupKey]:
+		arcpy.SelectLayerByAttribute_management(
+			in_layer_or_view = f["Name"], 
+			selection_type = "NEW_SELECTION",  
+			where_clause = "{0} = '{1}' AND {2} = {3}".format(f["SAFieldName"], 
+				groupKey[0], f["SubSAFieldName"], groupKey[1]))
+			
+		EBK = arcpy.EmpiricalBayesianKriging_ga(
+			in_features = f["Name"], 
+			z_field = f["ElevationField"], 
+			out_ga_layer = '', 
+			out_raster = makeFullPath(outGDB, f["Name"] + str(groupKey[1]) + "_GA"))
+		GAs.append(f["Name"] + str(groupKey[1]) + "_GA")
+	return GAs
+
+def extractValues():
+	pass 
 
 ############################################################################
 #Execute Functions
 
-SR = setSR(projection)
+
+#SR = setSR(projection)
 
 fileList = listInputFiles(inWorkspace)
 for layer in fileList:
@@ -223,14 +345,29 @@ testMatchingInputs(fileList, readTable)
 
 analysisGroups = createAnalysisGroups(readTable)
 
-envelopeBuffer(readTable)
-bufferGroups = createAnalysisGroups(readTable)
-organizedBuffs = {group:subsetAnalysisGroups(bufferGroups[group], 
-	"Buff", "SAFieldName", "SubSAFieldName") for group in bufferGroups}
+listConvexHulls = envelopeBuffer(readTable)
+for convexHull in listConvexHulls:
+	removeLayerFromMap(convexHull)
+
+buffGroups = {group:subsetAnalysisGroups(analysisGroups[group],
+	"Buff", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
 
 intersects = []
-for group in organizedBuffs: 
+for group in buffGroups: 
 	inter = intersectBufferGroups(group)
 	intersects.append(inter)
 
+studyAreas = makeStudyAreas(intersects)[]
+analysisPoints = makeAnalysisPoints(createFishNet())
 
+
+interpolationGroups = {group:subsetAnalysisGroups(analysisGroups[group], 
+	"Name", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
+interpolations = []
+for groupKey in interpolationGroups: 
+	interps = InterpolationTask(groupKey, DataSet(analysisGroups[gk][0]))
+	intersects.append(interps)
+
+gk = ('Dennis', 1)
+it = 
+it.run()

@@ -1,6 +1,11 @@
 ##########################################################################
+
+#Set spatial reference
+#Test projections and reproject if needed
 #for unique group: 
 	#interpolate
+
+
 #for each file	
 	#envelope (convex hull)
 	#buffer envelope
