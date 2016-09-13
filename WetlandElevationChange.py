@@ -1,29 +1,24 @@
 #-------------------------------------------------------------
 # Authored by Priscole
-# 5/1/16
 # Software: ArcMap 10.3 with GeoStatistical Analyst extension
-# Description: Tool takes many elevation point files
+# Description: Tool takes elevation point files
 # and exports a single csv file to compare elevation 
 # changes over time. Interpolation method default is EBK, 
 # with optional Spline with barriers if provided.
 #-------------------------------------------------------------
 
-import arcpy, csv
+import arcpy, csv, os 
 
 # metadataTable = arcpy.GetParameterAsText(0) #type file
 # inWorkspace = arcpy.GetParameterAsText(1) #type folder
-# outFolder = arcpy.GetParameterAsText(2) #type folder
-# outCSV = arcpy.GetParameterAsText(3) #type string
-# outGDB = arcpy.GetParameterAsText(4) #type data element - optional or in_memory?
-# projection = arcpy.GetParameterAsText(5) #type int (optional) - default Delaware SP (m)
-
+# projection = arcpy.GetParameterAsText(2) #type int (optional) - default Delaware SP (m)
 
 metadataTable = r'C:\Users\Priscole\Documents\code\GISPython\WetlandElevationChangeTable_demo.csv'
-outGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTestTemp.gdb'
+tempGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTestTemp.gdb'
 inWorkspace = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTest.gdb'
+projection = ""
 
 
-arcpy.env.workspace = inWorkspace
 mxd = arcpy.mapping.MapDocument("current")
 df = arcpy.mapping.ListDataFrames(mxd)[0]
 
@@ -31,41 +26,28 @@ isNull = ["null", "NULL", "NA", "na", "N/A", "n/a", "", " "]
 requiredFields = ["Name", "Date", "ElevationField", "SAFieldName"]
 optionalField = "SubSAFieldName"
 
+
+#############################################################################
+# Handle workspaces & files
+
+class WorkSpace(object):
+	def __init__(self, path):
+		self.path = path
+
+	def setWorkSpace(self):
+		arcpy.env.workspace = self.path
+		return arcpy.env.workspace
+
+	def listFiles(self):
+		if arcpy.Describe(arcpy.env.workspace).workspaceType in ['LocalDatabase', 'RemoteDatabase']:
+			return arcpy.ListFeatureClasses(feature_type="point")
+		return arcpy.ListFiles()
+
+	def directoryName(self):
+		return os.path.dirname(self.path)
+
 def makeFullPath(Path, Name):
 	return Path + "\\" + Name
-
-#############################################################################
-#Handle Projections
-
-def setSR(projection):
-	if projection == "":
-		arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(103017)
-	else: 
-		arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(projection)
-
-def testProjection(pointFile):
-	pass
-
-def reprojectFile(pointFile):
-	pass
-
-def setMapProjection():
-	pass
-#############################################################################
-#List input files according to workspace type
-
-def listInputFiles(inWorkspace):
-	desc = arcpy.Describe(arcpy.env.workspace)
-	if desc.workspaceType in ['LocalDatabase', 'RemoteDatabase']:
-		fileList = arcpy.ListFeatureClasses(feature_type='point')
-	elif desc.workspaceType in ['FileSystem']:
-		fileList = set(arcpy.ListFiles())
-	else: 
-		arcpy.AddMessage("""There was a problem with the input workspace. 
-			Valid workspaces include geodatabases, or a folder (directory) 
-			containing  only the point shapefiles intended for analysis.""")
-		fileList = None
-	return fileList	
 
 def addLayerToMap(layer):
 	addLayer = arcpy.mapping.Layer(layer)
@@ -77,6 +59,36 @@ def removeLayerFromMap(layer):
 
 def clearSelectedFeatures(layerName):
 	arcpy.SelectLayerByAttribute_management(layerName, "CLEAR_SELECTION")
+
+#############################################################################
+#Handle Projections
+
+class SpatialReference(object):
+	def __init__(self, projection):
+		self.projection = projection
+
+	def setEnvSpatialReference(self):
+		if self.projection == "":
+			arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(103017)
+		else: 
+			arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(self.projection)
+
+	def setMapProjection(self):
+		df.spatialReference = arcpy.env.outputCoordinateSystem.PCSCode
+	
+	def testProjection(self, fc):
+		if arcpy.Describe(fc).spatialReference.PCSCode == df.spatialReference.PCSCode:
+			return True
+		return False
+
+def createCommonProjections(workspace):
+	for fc in workspace.listFiles():
+		if SR.testProjection(fc) == True:
+			arcpy.FeatureClassToFeatureClass_conversion(fc, str(endGDB), fc)
+		else:
+			arcpy.Project_management(fc, 
+				makeFullPath(str(endGDB), fc), 
+				df.spatialReference)
 
 ##############################################################################
 #Handle metadata table & verify with file names
@@ -181,13 +193,13 @@ def envelopeBuffer(readTable):
 	for row in readTable:
 		convexHull = calculateConvexHull(
 			inputPath = makeFullPath(arcpy.env.workspace, row["Name"]),
-			outputPath = makeFullPath(outGDB, row["Name"]+ "_Conv"),
+			outputPath = makeFullPath(tempGDB, row["Name"]+ "_Conv"),
 			groupFields = groupingFieldsFromMetaDataForConvexHull(row))
 		buff = bufferPolygons(
 			inputPath = convexHull,
-			outputPath = makeFullPath(outGDB, row["Name"]) + "_buff")		
+			outputPath = makeFullPath(tempGDB, row["Name"]) + "_buff")		
 		row["Buff"] = row["Name"] + "_buff"
-		convexHulls.append(convexHull)
+		convexHulls.append(row["Name"] + "_Conv")
 	return convexHulls
 
 #feed ONE groupKey ("Dennis", 1) from organizedBuffs
@@ -209,14 +221,14 @@ def intersectBufferGroups(groupKey):
 		Buffers.append(f[0])
 	arcpy.Intersect_analysis(
 		in_features = Buffers, 
-		out_feature_class = makeFullPath(outGDB, groupKey[0] + str(groupKey[1]) + "_inter"), 
+		out_feature_class = makeFullPath(tempGDB, groupKey[0] + str(groupKey[1]) + "_inter"), 
 		join_attributes = "ALL")
 	return groupKey[0] + str(groupKey[1]) + "_inter"
 
 def makeStudyAreas(intersects):
 	arcpy.Merge_management(
 		inputs = intersects, 
-		output = makeFullPath(outGDB, "StudyAreas"))
+		output = makeFullPath(tempGDB, "StudyAreas"))
 
 ##################################################################################
 #Make Analysis Points
@@ -224,7 +236,7 @@ def makeStudyAreas(intersects):
 def createFishNet():
 	desc = arcpy.Describe("StudyAreas")
 	arcpy.CreateFishnet_management(
-		out_feature_class = makeFullPath(outGDB, "Fishnet"), 
+		out_feature_class = makeFullPath(tempGDB, "Fishnet"), 
 		origin_coord = str(desc.extent.lowerLeft), 
 		y_axis_coord = str(desc.extent.XMin) + " " + str(desc.extent.YMax + 10),
 		cell_width = "35",
@@ -235,13 +247,13 @@ def createFishNet():
 		labels = "LABELS",
 		template = "#",
 		geometry_type = "POLYLINE")
-	return makeFullPath(outGDB, "Fishnet_label")
+	return makeFullPath(tempGDB, "Fishnet_label")
 
 def makeAnalysisPoints(fishnet):
 	APoints = arcpy.SpatialJoin_analysis(
 		target_features = fishnet, 
 		join_features = "StudyAreas", 
-		out_feature_class = makeFullPath(outGDB, "AnalysisPoints"), 
+		out_feature_class = makeFullPath(tempGDB, "AnalysisPoints"), 
 		join_operation = "JOIN_ONE_TO_MANY", 
 		join_type = "KEEP_COMMON")
 	return APoints
@@ -292,7 +304,7 @@ class InterpolationTask(object):
 			in_features = self.dataset.nameOfLayerOut(self.groupKey), 
 			z_field = self.dataset.elevationField, 
 			out_ga_layer = "", 
-			out_raster = makeFullPath(outGDB, self.dataset.nameOfEBKOut(self.groupKey)),
+			out_raster = makeFullPath(tempGDB, self.dataset.nameOfEBKOut(self.groupKey)),
 			cell_size="", 
 			transformation_type="NONE", 
 			max_local_points="100", 
@@ -322,7 +334,7 @@ def interpolateByGroup(groupKey):
 			in_features = f["Name"], 
 			z_field = f["ElevationField"], 
 			out_ga_layer = '', 
-			out_raster = makeFullPath(outGDB, f["Name"] + str(groupKey[1]) + "_GA"))
+			out_raster = makeFullPath(tempGDB, f["Name"] + str(groupKey[1]) + "_GA"))
 		GAs.append(f["Name"] + str(groupKey[1]) + "_GA")
 	return GAs
 
@@ -332,16 +344,22 @@ def extractValues():
 ############################################################################
 #Execute Functions
 
+inWS = WorkSpace(inWorkspace)
+inWS.setWorkSpace()
+tempGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "TempWetland"))
+tempWS = WorkSpace(tempGDB)
+endGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "WetlandElevation"))
+endWS = WorkSpace(endGDB)
 
-#SR = setSR(projection)
-
-fileList = listInputFiles(inWorkspace)
-for layer in fileList:
-	addLayerToMap(layer)
+SR = SpatialReference(projection)
+SR.setEnvSpatialReference()
+SR.setMapProjection()
+createCommonProjections(inWS) #copy or reproject points into endGDB
+endWS.setWorkSpace() #change workspace to where reprojected points are
 
 readTable = csvToDictList(metadataTable)
 validateMetaData(readTable)
-testMatchingInputs(fileList, readTable)
+testMatchingInputs(endWS.listFiles(), readTable)
 
 analysisGroups = createAnalysisGroups(readTable)
 
@@ -352,6 +370,7 @@ for convexHull in listConvexHulls:
 buffGroups = {group:subsetAnalysisGroups(analysisGroups[group],
 	"Buff", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
 
+# fails here because of Maurice with only one area
 intersects = []
 for group in buffGroups: 
 	inter = intersectBufferGroups(group)
@@ -359,7 +378,6 @@ for group in buffGroups:
 
 studyAreas = makeStudyAreas(intersects)[]
 analysisPoints = makeAnalysisPoints(createFishNet())
-
 
 interpolationGroups = {group:subsetAnalysisGroups(analysisGroups[group], 
 	"Name", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
