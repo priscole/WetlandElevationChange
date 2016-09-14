@@ -261,50 +261,54 @@ def makeAnalysisPoints(fishnet):
 ##################################################################################
 #Interpoloate & Extract
 
-class DataSet(object):
+class GroupLayer(object):
 	def __init__(self, metaDataDict):
 		self.metaDataDict = metaDataDict
 		self.name = metaDataDict["Name"]
-		self.date = metaDataDict["Date"]
-		self.elevationField = metaDataDict["ElevationField"]
 		self.saFieldName = metaDataDict["SAFieldName"]
 		self.subSAFieldName = metaDataDict["SubSAFieldName"]
+		if "Date" in metaDataDict:
+			self.date = metaDataDict["Date"]
+		if "ElevationField" in metaDataDict:
+			self.elevationField = metaDataDict["ElevationField"]
 
 	def nameForGroup(self, groupKey):
-		return groupKey[0] + str(groupKey[1]) + self.name
-
-	def nameOfEBKOut(self, groupKey):
-		return self.nameForGroup(groupKey) + "_GA"
+		if len(groupKey) > 1:
+			return groupKey[0] + str(groupKey[1]) + self.name
+		return groupKey[0] + self.name
 
 	def nameOfLayerOut(self, groupKey):
 		return self.nameForGroup(groupKey)
 
-class InterpolationTask(object):
-	def __init__(self, groupKey, dataset):
-		self.groupKey = groupKey
-		self.dataset = dataset
-		self.saFieldValue = groupKey[0]
-		self.subSAFieldValue = groupKey[1]
+	def nameOfEBKOut(self, groupKey):
+		return self.nameForGroup(groupKey) + "_GA"
 
-	def selectionWhereClause(self):
+	def nameOFExtractValues(self, groupKey):
+		return self.nameForGroup(groupKey) + "_val"
+
+	def selectionWhereClause(self, groupKey):
+		if self.subSAFieldName == '':
+			return "{0} = '{1}'".format(
+			self.saFieldName, 
+			groupKey[0])		
 		return "{0} = '{1}' AND {2} = {3}".format(
-			self.dataset.saFieldName, 
-			self.saFieldValue, 
-			self.dataset.subSAFieldName, 
-			self.subSAFieldValue)
+			self.saFieldName, 
+			groupKey[0], 
+			self.subSAFieldName, 
+			groupKey[1])
 
-	def createGroupLayer(self):
+	def createGroupLayer(self, groupKey):
 		arcpy.MakeFeatureLayer_management(
-			in_features = self.dataset.name, 
-			out_layer = self.dataset.nameOfLayerOut(self.groupKey),  
-			where_clause = self.selectionWhereClause())
+			in_features = self.name, 
+			out_layer = self.nameOfLayerOut(groupKey),  
+			where_clause = self.selectionWhereClause(groupKey))
 
-	def runInterpolationOnGroupLayer(self):
+	def runInterpolationOnGroupLayer(self, groupKey):
 		EBK = arcpy.EmpiricalBayesianKriging_ga(
-			in_features = self.dataset.nameOfLayerOut(self.groupKey), 
-			z_field = self.dataset.elevationField, 
+			in_features = self.name, 
+			z_field = self.elevationField, 
 			out_ga_layer = "", 
-			out_raster = makeFullPath(tempGDB, self.dataset.nameOfEBKOut(self.groupKey)),
+			out_raster = makeFullPath(tempGDB, self.nameOfEBKOut(groupKey)),
 			cell_size="", 
 			transformation_type="NONE", 
 			max_local_points="100", 
@@ -317,29 +321,11 @@ class InterpolationTask(object):
 			probability_threshold="", 
 			semivariogram_model_type="POWER")
 
-	def run(self):
-		self.createGroupLayer()
-		self.runInterpolationOnGroupLayer()
-
-def interpolateByGroup(groupKey):
-	GAs = []
-	for f in analysisGroups[groupKey]:
-		arcpy.SelectLayerByAttribute_management(
-			in_layer_or_view = f["Name"], 
-			selection_type = "NEW_SELECTION",  
-			where_clause = "{0} = '{1}' AND {2} = {3}".format(f["SAFieldName"], 
-				groupKey[0], f["SubSAFieldName"], groupKey[1]))
-			
-		EBK = arcpy.EmpiricalBayesianKriging_ga(
-			in_features = f["Name"], 
-			z_field = f["ElevationField"], 
-			out_ga_layer = '', 
-			out_raster = makeFullPath(tempGDB, f["Name"] + str(groupKey[1]) + "_GA"))
-		GAs.append(f["Name"] + str(groupKey[1]) + "_GA")
-	return GAs
-
-def extractValues():
-	pass 
+	def extractValuesFromInterpolations(self, analysisPoints, groupKey):
+		arcpy.ExtractValuesToPoints(
+			in_point_features = analysisPoints,
+			in_raster = self.nameOfEBKOut(groupKey),
+			out_point_features = self.nameOFExtractValues(groupKey))
 
 ############################################################################
 #Execute Functions
@@ -380,12 +366,6 @@ studyAreas = makeStudyAreas(intersects)[]
 analysisPoints = makeAnalysisPoints(createFishNet())
 
 interpolationGroups = {group:subsetAnalysisGroups(analysisGroups[group], 
-	"Name", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
-interpolations = []
-for groupKey in interpolationGroups: 
-	interps = InterpolationTask(groupKey, DataSet(analysisGroups[gk][0]))
-	intersects.append(interps)
+	"Name", "SAFieldName", "SubSAFieldName", "ElevationField") for group in analysisGroups}
 
-gk = ('Dennis', 1)
-it = 
-it.run()
+
