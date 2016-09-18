@@ -155,22 +155,21 @@ def findDistinctGroups(metaDataRow):
 
 #master dictionary of analysis groups
 def createAnalysisGroups(readTable):
-	analysisGroups = {}
+	result = {}
 	for metaDataRow in readTable: 
 		groups = findDistinctGroups(metaDataRow)
 		for group in groups: 
-			if group in analysisGroups: 
-				analysisGroups[group].append(metaDataRow)
+			if group in result: 
+				result[group].append(metaDataRow)
 			else: 
-				analysisGroups[group] = [metaDataRow]
-	return analysisGroups
+				result[group] = [metaDataRow]
+	return result
 
 def subsetAnalysisGroups(analysisGroupList, *fieldStrings):
 	simplifiedGroup = []
 	for groupDict in analysisGroupList:
 		simplifiedGroup.append({k:groupDict[k] for k in fieldStrings})
 	return simplifiedGroup
-
 
 ########################################################################
 #Geoprocessing Toolset for analysis
@@ -211,7 +210,7 @@ def nameIntersect(groupKey):
 		return groupKey[0] + str(groupKey[1]) + "_inter"
 	return groupKey[0] + "_inter"
 
-def intersectBufferGroups(groupKey):
+def intersectBufferGroups(analysisGroups, groupKey):
 	buffers = []
 	for f in analysisGroups[groupKey]:
 		fGroup = GroupLayer(f)
@@ -224,8 +223,6 @@ def intersectBufferGroups(groupKey):
 		in_features = buffers, 
 		out_feature_class = makeFullPath(tempGDB, nameIntersect(groupKey)), 
 		join_attributes = "ALL")
-	for buff in buffers:
-		removeLayerFromMap(buff)
 	return nameIntersect(groupKey)
 
 def makeStudyAreas(intersects):
@@ -334,53 +331,66 @@ class GroupLayer(object):
 			in_raster = self.nameOfEBKOut(groupKey),
 			out_point_features = self.nameOFExtractValues(groupKey))
 
+
 ############################################################################
 #Execute Functions
 
-inWS = WorkSpace(inWorkspace)
-inWS.setWorkSpace()
-tempGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "TempWetland"))
-tempWS = WorkSpace(tempGDB)
-endGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "WetlandElevation"))
-endWS = WorkSpace(endGDB)
 
-SR = SpatialReference(projection)
-SR.setEnvSpatialReference()
-SR.setMapProjection()
-createCommonProjections(inWS) #copy or reproject points into endGDB
-endWS.setWorkSpace() #change workspace to where reprojected points are
+# for easy importing, do:
+# import sys
+# sys.path.append("C:\\Users\\Priscole\\Documents\\code\\GISPython")
+# import WetlandElevationChange as wec
 
-readTable = csvToDictList(metadataTable)
-validateMetaData(readTable)
-testMatchingInputs(endWS.listFiles(), readTable)
+run = True
 
-analysisGroups = createAnalysisGroups(readTable)
+print "reloaded WetlandElevationChange"
 
-listConvexHulls = envelopeBuffer(readTable)
-for convexHull in listConvexHulls:
-	removeLayerFromMap(convexHull)
+if run:
 
-buffGroups = {group:subsetAnalysisGroups(analysisGroups[group],
-	"Buff", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
+	arcpy.env.overwriteOutput = True
+	inWS = WorkSpace(inWorkspace)
+	inWS.setWorkSpace()
+	tempGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "TempWetland"))
+	endGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "WetlandElevation"))
+	tempWS = WorkSpace(tempGDB)
+	endWS = WorkSpace(endGDB)
 
-intersects = []
-for group in buffGroups: 
-	inter = intersectBufferGroups(group)
-	intersects.append(inter)
+	SR = SpatialReference(projection)
+	SR.setEnvSpatialReference()
+	SR.setMapProjection()
+	createCommonProjections(inWS) #copy or reproject points into endGDB
+	endWS.setWorkSpace() #change workspace to where reprojected points are
 
-studyAreas = makeStudyAreas(intersects)
-analysisPoints = makeAnalysisPoints(createFishNet())
+	readTable = csvToDictList(metadataTable)
+	validateMetaData(readTable)
+	testMatchingInputs(endWS.listFiles(), readTable)
 
-#clean up map
-for i in intersects:
-	removeLayerFromMap(i)
+	analysisGroups = createAnalysisGroups(readTable)
 
-# interpolationGroups = {group:subsetAnalysisGroups(analysisGroups[group], 
-# 	"Name", "SAFieldName", "SubSAFieldName", "ElevationField") for group in analysisGroups}
+	listConvexHulls = envelopeBuffer(readTable)
+	for convexHull in listConvexHulls:
+		removeLayerFromMap(convexHull)
 
-for groupKey in analysisGroups:
-	for f in analysisGroups[groupKey]:
-		testName = GroupLayer(f)
-		testName.createGroupLayer(groupKey)
-		testName.runInterpolationOnGroupLayer(groupKey)
+	buffGroups = {group:subsetAnalysisGroups(analysisGroups[group],
+		"Buff", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
+
+	intersects = []
+	for group in buffGroups: 
+		inter = intersectBufferGroups(analysisGroups, group)
+		intersects.append(inter)
+
+	studyAreas = makeStudyAreas(intersects)
+	analysisPoints = makeAnalysisPoints(createFishNet())
+
+	#clean up map
+	for i in intersects:
+		pass
+		# removeLayerFromMap(i
+
+	for groupKey in analysisGroups:
+		for f in analysisGroups[groupKey]:
+			testName = GroupLayer(f)
+			testName.createGroupLayer(groupKey)
+			testName.runInterpolationOnGroupLayer(groupKey)
+
 
