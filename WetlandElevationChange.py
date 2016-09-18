@@ -14,8 +14,9 @@ import arcpy, csv, os
 # projection = arcpy.GetParameterAsText(2) #type int (optional) - default Delaware SP (m)
 
 metadataTable = r'C:\Users\Priscole\Documents\code\GISPython\WetlandElevationChangeTable_demo.csv'
-tempGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTestTemp.gdb'
+tempGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\TempWetland.gdb'
 inWorkspace = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTest.gdb'
+endGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandElevation.gdb'
 projection = ""
 
 
@@ -205,25 +206,27 @@ def envelopeBuffer(readTable):
 #feed ONE groupKey ("Dennis", 1) from organizedBuffs
 #should SubSAField be a string or int???? -Makes HUGE diff in SQL
 #Handle case len(groupKey) = 1, like ('Maurice',)
+def nameIntersect(groupKey): 
+	if len(groupKey) > 1:
+		return groupKey[0] + str(groupKey[1]) + "_inter"
+	return groupKey[0] + "_inter"
+
 def intersectBufferGroups(groupKey):
-	groupInfo = []
-	for metadataDicts in analysisGroups[groupKey]:
-		groupInfo.append(
-			(metadataDicts["Buff"], 
-				metadataDicts["SAFieldName"], 
-				metadataDicts["SubSAFieldName"]))
-	Buffers = []
-	for f in groupInfo:
+	buffers = []
+	for f in analysisGroups[groupKey]:
+		fGroup = GroupLayer(f)
+		buffers.append(fGroup.buffName)
 		arcpy.SelectLayerByAttribute_management(
-			in_layer_or_view = f[0], 
-			selection_type = "NEW_SELECTION",  
-			where_clause = "{0} = '{1}' AND {2} = {3}".format(f[1], groupKey[0], f[2], groupKey[1]))
-		Buffers.append(f[0])
+			in_layer_or_view = fGroup.buffName,
+			selection_type = "NEW_SELECTION",
+			where_clause = fGroup.selectionWhereClause(groupKey))
 	arcpy.Intersect_analysis(
-		in_features = Buffers, 
-		out_feature_class = makeFullPath(tempGDB, groupKey[0] + str(groupKey[1]) + "_inter"), 
+		in_features = buffers, 
+		out_feature_class = makeFullPath(tempGDB, nameIntersect(groupKey)), 
 		join_attributes = "ALL")
-	return groupKey[0] + str(groupKey[1]) + "_inter"
+	for buff in buffers:
+		removeLayerFromMap(buff)
+	return nameIntersect(groupKey)
 
 def makeStudyAreas(intersects):
 	arcpy.Merge_management(
@@ -256,6 +259,8 @@ def makeAnalysisPoints(fishnet):
 		out_feature_class = makeFullPath(tempGDB, "AnalysisPoints"), 
 		join_operation = "JOIN_ONE_TO_MANY", 
 		join_type = "KEEP_COMMON")
+	removeLayerFromMap('Fishnet_label')
+	removeLayerFromMap('Fishnet')
 	return APoints
 
 ##################################################################################
@@ -271,6 +276,8 @@ class GroupLayer(object):
 			self.date = metaDataDict["Date"]
 		if "ElevationField" in metaDataDict:
 			self.elevationField = metaDataDict["ElevationField"]
+		if "Buff" in metaDataDict:
+			self.buffName = metaDataDict["Buff"]
 
 	def nameForGroup(self, groupKey):
 		if len(groupKey) > 1:
@@ -305,7 +312,7 @@ class GroupLayer(object):
 
 	def runInterpolationOnGroupLayer(self, groupKey):
 		EBK = arcpy.EmpiricalBayesianKriging_ga(
-			in_features = self.name, 
+			in_features = self.nameOfLayerOut(groupKey), 
 			z_field = self.elevationField, 
 			out_ga_layer = "", 
 			out_raster = makeFullPath(tempGDB, self.nameOfEBKOut(groupKey)),
@@ -356,16 +363,24 @@ for convexHull in listConvexHulls:
 buffGroups = {group:subsetAnalysisGroups(analysisGroups[group],
 	"Buff", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
 
-# fails here because of Maurice with only one area
 intersects = []
 for group in buffGroups: 
 	inter = intersectBufferGroups(group)
 	intersects.append(inter)
 
-studyAreas = makeStudyAreas(intersects)[]
+studyAreas = makeStudyAreas(intersects)
 analysisPoints = makeAnalysisPoints(createFishNet())
 
-interpolationGroups = {group:subsetAnalysisGroups(analysisGroups[group], 
-	"Name", "SAFieldName", "SubSAFieldName", "ElevationField") for group in analysisGroups}
+#clean up map
+for i in intersects:
+	removeLayerFromMap(i)
 
+# interpolationGroups = {group:subsetAnalysisGroups(analysisGroups[group], 
+# 	"Name", "SAFieldName", "SubSAFieldName", "ElevationField") for group in analysisGroups}
+
+for groupKey in analysisGroups:
+	for f in analysisGroups[groupKey]:
+		testName = GroupLayer(f)
+		testName.createGroupLayer(groupKey)
+		testName.runInterpolationOnGroupLayer(groupKey)
 
