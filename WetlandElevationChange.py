@@ -8,6 +8,7 @@
 #-------------------------------------------------------------
 
 import arcpy, csv, os 
+arcpy.env.overwriteOutput = True
 
 # metadataTable = arcpy.GetParameterAsText(0) #type file
 # inWorkspace = arcpy.GetParameterAsText(1) #type folder
@@ -224,8 +225,6 @@ def intersectBufferGroups(groupKey):
 		in_features = buffers, 
 		out_feature_class = makeFullPath(tempGDB, nameIntersect(groupKey)), 
 		join_attributes = "ALL")
-	for buff in buffers:
-		removeLayerFromMap(buff)
 	return nameIntersect(groupKey)
 
 def makeStudyAreas(intersects):
@@ -262,6 +261,22 @@ def makeAnalysisPoints(fishnet):
 	removeLayerFromMap('Fishnet_label')
 	removeLayerFromMap('Fishnet')
 	return APoints
+
+def addYearsToAnalysisPoints():
+	dates = set()
+	newFields = []
+	for groupKey in analysisGroups:
+		for f in analysisGroups[groupKey]:
+			dates.add(GroupLayer(f).date)
+	for date in dates:
+		arcpy.AddField_management(
+			in_table = "AnalysisPoints",
+			field_name = "YR_" + date,
+			field_type = "TEXT")
+		newFields.append("YR_" + date)
+	return newFields
+	
+
 
 ##################################################################################
 #Interpoloate & Extract
@@ -311,28 +326,35 @@ class GroupLayer(object):
 			where_clause = self.selectionWhereClause(groupKey))
 
 	def runInterpolationOnGroupLayer(self, groupKey):
-		EBK = arcpy.EmpiricalBayesianKriging_ga(
-			in_features = self.nameOfLayerOut(groupKey), 
-			z_field = self.elevationField, 
-			out_ga_layer = "", 
-			out_raster = makeFullPath(tempGDB, self.nameOfEBKOut(groupKey)),
-			cell_size="", 
-			transformation_type="NONE", 
-			max_local_points="100", 
-			overlap_factor="1", 
-			number_semivariograms="100", 
-			search_neighborhood="", 
-			output_type="PREDICTION", 
-			quantile_value="0.5", 
-			threshold_type="EXCEED", 
-			probability_threshold="", 
-			semivariogram_model_type="POWER")
+		try:
+			EBK = arcpy.EmpiricalBayesianKriging_ga(
+				in_features = self.nameOfLayerOut(groupKey), 
+				z_field = self.elevationField, 
+				out_ga_layer = "", 
+				out_raster = makeFullPath(tempGDB, self.nameOfEBKOut(groupKey)),
+				cell_size="", 
+				transformation_type="NONE", 
+				max_local_points="100", 
+				overlap_factor="1", 
+				number_semivariograms="100", 
+				search_neighborhood="", 
+				output_type="PREDICTION", 
+				quantile_value="0.5", 
+				threshold_type="EXCEED", 
+				probability_threshold="", 
+				semivariogram_model_type="POWER")
+		except Exception:
+			pass
 
 	def extractValuesFromInterpolations(self, analysisPoints, groupKey):
-		arcpy.ExtractValuesToPoints(
-			in_point_features = analysisPoints,
-			in_raster = self.nameOfEBKOut(groupKey),
-			out_point_features = self.nameOFExtractValues(groupKey))
+		try:
+			extracted = arcpy.sa.ExtractValuesToPoints(
+				in_point_features = analysisPoints,
+				in_raster = self.nameOfEBKOut(groupKey),
+				out_point_features = self.nameOFExtractValues(groupKey))
+			return extracted
+		except Exception:
+			pass
 
 ############################################################################
 #Execute Functions
@@ -368,19 +390,30 @@ for group in buffGroups:
 	inter = intersectBufferGroups(group)
 	intersects.append(inter)
 
+# use field mappings in merge tool making study areas
 studyAreas = makeStudyAreas(intersects)
 analysisPoints = makeAnalysisPoints(createFishNet())
+analysisYears = addYearsToAnalysisPoints()
 
 #clean up map
 for i in intersects:
 	removeLayerFromMap(i)
+# figure out how to remove buffers from map
 
-# interpolationGroups = {group:subsetAnalysisGroups(analysisGroups[group], 
-# 	"Name", "SAFieldName", "SubSAFieldName", "ElevationField") for group in analysisGroups}
+tempWS.setWorkSpace()
 
 for groupKey in analysisGroups:
-	for f in analysisGroups[groupKey]:
-		testName = GroupLayer(f)
-		testName.createGroupLayer(groupKey)
-		testName.runInterpolationOnGroupLayer(groupKey)
+	for fileDict in analysisGroups[groupKey]:
+		f = GroupLayer(fileDict)
+		f.createGroupLayer(groupKey)
+		f.runInterpolationOnGroupLayer(groupKey)
+		extracted = f.extractValuesFromInterpolations("AnalysisPoints", groupKey)
+		extractedVals = list(arcpy.da.SearchCursor(extracted, ['OBJECTID','RASTERVALU'], "RASTERVALU <> -9999" ))
+		with arcpy.da.UpdateCursor("AnalysisPoints", analysisYears) as cur:
+			for row in cur:
+				for val in extractedVals:
+					if val[0] in row[analysisYears.index("YR_" + f.date)]:
+						row[analysisYears.index("YR_" + f.date)] = val[1]
+						cur.updateRow(row)
+
 
