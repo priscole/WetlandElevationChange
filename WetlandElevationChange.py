@@ -20,14 +20,12 @@ inWorkspace = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTest.gdb'
 endGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandElevation.gdb'
 projection = ""
 
-
 mxd = arcpy.mapping.MapDocument("current")
 df = arcpy.mapping.ListDataFrames(mxd)[0]
 
 isNull = ["null", "NULL", "NA", "na", "N/A", "n/a", "", " "]
 requiredFields = ["Name", "Date", "ElevationField", "SAFieldName"]
 optionalField = "SubSAFieldName"
-
 
 #############################################################################
 # Handle workspaces & files
@@ -58,6 +56,16 @@ def addLayerToMap(layer):
 def removeLayerFromMap(layer):
 	removeLayer = arcpy.mapping.Layer(layer)
 	arcpy.mapping.RemoveLayer(df, removeLayer)
+
+def removeLayerLike(partialString):
+	for layer in arcpy.mapping.ListLayers(mxd):
+		if partialString in layer.name:
+			arcpy.mapping.RemoveLayer(df, layer)
+
+def deleteFieldLike(partialString, layerName):
+	for fld in arcpy.ListFields(layerName):
+		if partialString in fld.name:
+			arcpy.DeleteField_management(layerName, fld.name)
 
 def clearSelectedFeatures(layerName):
 	arcpy.SelectLayerByAttribute_management(layerName, "CLEAR_SELECTION")
@@ -204,9 +212,6 @@ def envelopeBuffer(readTable):
 		convexHulls.append(row["Name"] + "_Conv")
 	return convexHulls
 
-#feed ONE groupKey ("Dennis", 1) from organizedBuffs
-#should SubSAField be a string or int???? -Makes HUGE diff in SQL
-#Handle case len(groupKey) = 1, like ('Maurice',)
 def nameIntersect(groupKey): 
 	if len(groupKey) > 1:
 		return groupKey[0] + str(groupKey[1]) + "_inter"
@@ -231,6 +236,9 @@ def makeStudyAreas(intersects):
 	arcpy.Merge_management(
 		inputs = intersects, 
 		output = makeFullPath(tempGDB, "StudyAreas"))
+	deleteFieldLike("FID", "StudyAreas")
+	deleteFieldLike("BUFF", "StudyAreas")
+	deleteFieldLike("_1", "StudyAreas")
 
 ##################################################################################
 #Make Analysis Points
@@ -260,6 +268,8 @@ def makeAnalysisPoints(fishnet):
 		join_type = "KEEP_COMMON")
 	removeLayerFromMap('Fishnet_label')
 	removeLayerFromMap('Fishnet')
+	deleteFieldLike("_FID", "AnalysisPoints")
+	deleteFieldLike("Join", "AnalysisPoints")
 	return APoints
 
 def addYearsToAnalysisPoints():
@@ -272,12 +282,10 @@ def addYearsToAnalysisPoints():
 		arcpy.AddField_management(
 			in_table = "AnalysisPoints",
 			field_name = "YR_" + date,
-			field_type = "TEXT")
+			field_type = "DOUBLE")
 		newFields.append("YR_" + date)
 	return newFields
 	
-
-
 ##################################################################################
 #Interpoloate & Extract
 
@@ -354,7 +362,7 @@ class GroupLayer(object):
 				out_point_features = self.nameOFExtractValues(groupKey))
 			return extracted
 		except Exception:
-			pass
+			return None
 
 ############################################################################
 #Execute Functions
@@ -362,8 +370,8 @@ class GroupLayer(object):
 inWS = WorkSpace(inWorkspace)
 inWS.setWorkSpace()
 tempGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "TempWetland"))
-tempWS = WorkSpace(tempGDB)
 endGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "WetlandElevation"))
+tempWS = WorkSpace(tempGDB)
 endWS = WorkSpace(endGDB)
 
 SR = SpatialReference(projection)
@@ -390,15 +398,12 @@ for group in buffGroups:
 	inter = intersectBufferGroups(group)
 	intersects.append(inter)
 
-# use field mappings in merge tool making study areas
 studyAreas = makeStudyAreas(intersects)
 analysisPoints = makeAnalysisPoints(createFishNet())
 analysisYears = addYearsToAnalysisPoints()
 
-#clean up map
-for i in intersects:
-	removeLayerFromMap(i)
-# figure out how to remove buffers from map
+removeLayerLike("_inter")
+removeLayerLike("_buff")
 
 tempWS.setWorkSpace()
 
@@ -408,12 +413,11 @@ for groupKey in analysisGroups:
 		f.createGroupLayer(groupKey)
 		f.runInterpolationOnGroupLayer(groupKey)
 		extracted = f.extractValuesFromInterpolations("AnalysisPoints", groupKey)
-		extractedVals = list(arcpy.da.SearchCursor(extracted, ['OBJECTID','RASTERVALU'], "RASTERVALU <> -9999" ))
-		with arcpy.da.UpdateCursor("AnalysisPoints", analysisYears) as cur:
-			for row in cur:
-				for val in extractedVals:
-					if val[0] in row[analysisYears.index("YR_" + f.date)]:
-						row[analysisYears.index("YR_" + f.date)] = val[1]
-						cur.updateRow(row)
-
-
+		if extracted != None:
+			extractedVals = list(arcpy.da.SearchCursor(extracted, ['OBJECTID','RASTERVALU'], "RASTERVALU <> -9999" ))
+			with arcpy.da.UpdateCursor("AnalysisPoints", ['OBJECTID', "YR_" + f.date]) as cur:
+				for row in cur:
+					for val in extractedVals:
+						if val[0] == row[0]:
+							row[1] = val[1]
+							cur.updateRow(row)
