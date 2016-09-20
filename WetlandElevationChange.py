@@ -1,24 +1,25 @@
-#-------------------------------------------------------------
+#--------------------------------------------------------------------
 # Authored by Priscole
-# Software: ArcMap 10.3 with GeoStatistical Analyst extension
+# Software: ArcMap 10.3 with GeoStatistical Analyst, Python 2.7x
 # Description: Tool takes elevation point files
 # and exports a single csv file to compare elevation 
-# changes over time. Interpolation method default is EBK, 
-# with optional Spline with barriers if provided.
-#-------------------------------------------------------------
+# changes over time. Interpolation method: Empirical Bayesian Kriging
+#--------------------------------------------------------------------
 
 import arcpy, csv, os 
 arcpy.env.overwriteOutput = True
 
-# metadataTable = arcpy.GetParameterAsText(0) #type file
-# inWorkspace = arcpy.GetParameterAsText(1) #type folder
-# projection = arcpy.GetParameterAsText(2) #type int (optional) - default Delaware SP (m)
+metadataTable = arcpy.GetParameterAsText(0) #type file
+inWorkspace = arcpy.GetParameterAsText(1) #type folder
+projection = arcpy.GetParameterAsText(2) #type int (optional) - default Delaware SP (m)
+endGDB = arcpy.GetParameterAsText(3) #type data element (optional)
+tempGDB = arcpy.GetParameterAsText(4) #type data element (optional)
 
-metadataTable = r'C:\Users\Priscole\Documents\code\GISPython\WetlandElevationChangeTable_demo.csv'
-tempGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\TempWetland.gdb'
-inWorkspace = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTest.gdb'
-endGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandElevation.gdb'
-projection = ""
+# metadataTable = r'C:\Users\Priscole\Documents\code\GISPython\WetlandElevationChangeTable_demo.csv'
+# tempGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\TempWetland.gdb'
+# inWorkspace = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTest.gdb'
+# endGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandElevation.gdb'
+# projection = ""
 
 mxd = arcpy.mapping.MapDocument("current")
 df = arcpy.mapping.ListDataFrames(mxd)[0]
