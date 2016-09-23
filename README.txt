@@ -26,6 +26,6 @@ Desc - Field name in the dataset indicating the top level group for analysis, su
 
 SubSAFieldName
 #####################
-Type - Text!!!!!!!! - Test data is number not string!!!!!!!
-Null - True, optional field 
+Type - Text or Number
+Nullable - True, optional field 
 Desc - Field name in the dataset containing additional information for how to sub-divide the study area, such as SET number, tributary, sub-region, etc. Non-spatially contiguous groups will not be evaluated, so make sure that contents of sub-groups overlap each other in space.

@@ -8,18 +8,13 @@
 
 import arcpy, csv, os 
 arcpy.env.overwriteOutput = True
+arcpy.env.addOutputsToMap = True
 
 metadataTable = arcpy.GetParameterAsText(0) #type file
 inWorkspace = arcpy.GetParameterAsText(1) #type folder
 projection = arcpy.GetParameterAsText(2) #type int (optional) - default Delaware SP (m)
 endGDB = arcpy.GetParameterAsText(3) #type data element (optional)
 tempGDB = arcpy.GetParameterAsText(4) #type data element (optional)
-
-# metadataTable = r'C:\Users\Priscole\Documents\code\GISPython\WetlandElevationChangeTable_demo.csv'
-# tempGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\TempWetland.gdb'
-# inWorkspace = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandsAppTest.gdb'
-# endGDB = r'C:\Users\Priscole\Documents\ArcGIS\Wetlands\WetlandElevation.gdb'
-# projection = ""
 
 mxd = arcpy.mapping.MapDocument("current")
 df = arcpy.mapping.ListDataFrames(mxd)[0]
@@ -37,6 +32,7 @@ class WorkSpace(object):
 
 	def setWorkSpace(self):
 		arcpy.env.workspace = self.path
+		arcpy.AddMessage("Setting workspace to: " + arcpy.env.workspace)
 		return arcpy.env.workspace
 
 	def listFiles(self):
@@ -86,6 +82,7 @@ class SpatialReference(object):
 
 	def setMapProjection(self):
 		df.spatialReference = arcpy.env.outputCoordinateSystem.PCSCode
+		arcpy.AddMessage("Setting spatial reference to: " + str(df.spatialReference.PCSCode) + "-" + df.spatialReference.PCSName)
 	
 	def testProjection(self, fc):
 		if arcpy.Describe(fc).spatialReference.PCSCode == df.spatialReference.PCSCode:
@@ -93,6 +90,7 @@ class SpatialReference(object):
 		return False
 
 def createCommonProjections(workspace):
+	arcpy.AddMessage("Projecting input data to common spatial reference...")
 	for fc in workspace.listFiles():
 		if SR.testProjection(fc) == True:
 			arcpy.FeatureClassToFeatureClass_conversion(fc, str(endGDB), fc)
@@ -106,6 +104,7 @@ def createCommonProjections(workspace):
 
 #read csv file
 def csvToDictList(metadataTable):
+	arcpy.AddMessage("Reading csv file...")
 	readTable = []
 	with open(metadataTable, 'rb') as csvfile:
 		tableReader = csv.DictReader(csvfile)
@@ -200,6 +199,7 @@ def bufferPolygons(inputPath, outputPath, bufferDistanceInMeters=30):
 		buffer_distance_or_field = str(bufferDistanceInMeters) + " Meters")
 
 def envelopeBuffer(readTable):
+	arcpy.AddMessage("Running convex hull...")
 	convexHulls = []
 	for row in readTable:
 		convexHull = calculateConvexHull(
@@ -219,6 +219,7 @@ def nameIntersect(groupKey):
 	return groupKey[0] + "_inter"
 
 def intersectBufferGroups(groupKey):
+	arcpy.AddMessage("Intersecting envelopes...")
 	buffers = []
 	for f in analysisGroups[groupKey]:
 		fGroup = GroupLayer(f)
@@ -234,6 +235,7 @@ def intersectBufferGroups(groupKey):
 	return nameIntersect(groupKey)
 
 def makeStudyAreas(intersects):
+	arcpy.AddMessage("Creating study areas...")
 	arcpy.Merge_management(
 		inputs = intersects, 
 		output = makeFullPath(tempGDB, "StudyAreas"))
@@ -245,6 +247,7 @@ def makeStudyAreas(intersects):
 #Make Analysis Points
 
 def createFishNet():
+	arcpy.AddMessage("Creating fishnet in study areas...")
 	desc = arcpy.Describe("StudyAreas")
 	arcpy.CreateFishnet_management(
 		out_feature_class = makeFullPath(tempGDB, "Fishnet"), 
@@ -261,6 +264,7 @@ def createFishNet():
 	return makeFullPath(tempGDB, "Fishnet_label")
 
 def makeAnalysisPoints(fishnet):
+	arcpy.AddMessage("Making final analysis points...")
 	APoints = arcpy.SpatialJoin_analysis(
 		target_features = fishnet, 
 		join_features = "StudyAreas", 
@@ -274,6 +278,7 @@ def makeAnalysisPoints(fishnet):
 	return APoints
 
 def addYearsToAnalysisPoints():
+	arcpy.AddMessage("Inserting years into analysis points...")
 	dates = set()
 	newFields = []
 	for groupKey in analysisGroups:
@@ -321,12 +326,19 @@ class GroupLayer(object):
 		if self.subSAFieldName == '':
 			return "{0} = '{1}'".format(
 			self.saFieldName, 
-			groupKey[0])		
-		return "{0} = '{1}' AND {2} = {3}".format(
-			self.saFieldName, 
-			groupKey[0], 
-			self.subSAFieldName, 
-			groupKey[1])
+			groupKey[0])
+		elif type(groupKey[1]) == int: 
+			return "{0} = '{1}' AND {2} = {3}".format(
+				self.saFieldName, 
+				groupKey[0], 
+				self.subSAFieldName, 
+				groupKey[1])
+		else:
+			return "{0} = '{1}' AND {2} = '{3}'".format(
+				self.saFieldName, 
+				groupKey[0], 
+				self.subSAFieldName, 
+				groupKey[1])
 
 	def createGroupLayer(self, groupKey):
 		arcpy.MakeFeatureLayer_management(
@@ -370,8 +382,15 @@ class GroupLayer(object):
 
 inWS = WorkSpace(inWorkspace)
 inWS.setWorkSpace()
-tempGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "TempWetland"))
-endGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "WetlandElevation"))
+if arcpy.Exists(makeFullPath(inWS.directoryName(), "TempWetland.gdb")):
+	tempGDB = makeFullPath(inWS.directoryName(), "TempWetland")
+elif tempGDB == '':
+	tempGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "TempWetland"))
+
+if arcpy.Exists(makeFullPath(inWS.directoryName(), "WetlandElevation.gdb")):
+	endGDB = makeFullPath(inWS.directoryName(), "WetlandElevation")
+elif endGDB == '':
+	endGDB = str(arcpy.CreateFileGDB_management(inWS.directoryName(), "WetlandElevation"))
 tempWS = WorkSpace(tempGDB)
 endWS = WorkSpace(endGDB)
 
@@ -408,6 +427,7 @@ removeLayerLike("_buff")
 
 tempWS.setWorkSpace()
 
+arcpy.AddMessage("Running interpolations and extracting values into analysis points...")
 for groupKey in analysisGroups:
 	for fileDict in analysisGroups[groupKey]:
 		f = GroupLayer(fileDict)
@@ -422,3 +442,10 @@ for groupKey in analysisGroups:
 						if val[0] == row[0]:
 							row[1] = val[1]
 							cur.updateRow(row)
+
+finalOutputs = ['AnalysisPoints', 'StudyAreas']
+for layer in arcpy.mapping.ListLayers(mxd):
+	if layer.name not in finalOutputs:
+		arcpy.mapping.RemoveLayer(df, layer)
+
+arcpy.AddMessage("Final data stored in: " + endGDB + ". Temporary data stored in: " + tempGDB)
