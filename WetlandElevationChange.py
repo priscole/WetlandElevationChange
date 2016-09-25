@@ -192,12 +192,6 @@ def calculateConvexHull(inputPath, outputPath, groupFields):
 		group_option = "LIST", 
 		group_field = groupFields)
 
-def bufferPolygons(inputPath, outputPath, bufferDistanceInMeters=30):
-	return arcpy.Buffer_analysis(
-		in_features = inputPath, 
-		out_feature_class = outputPath, 
-		buffer_distance_or_field = str(bufferDistanceInMeters) + " Meters")
-
 def envelopeBuffer(readTable):
 	arcpy.AddMessage("Running convex hull...")
 	convexHulls = []
@@ -206,10 +200,7 @@ def envelopeBuffer(readTable):
 			inputPath = makeFullPath(arcpy.env.workspace, row["Name"]),
 			outputPath = makeFullPath(tempGDB, row["Name"]+ "_Conv"),
 			groupFields = groupingFieldsFromMetaDataForConvexHull(row))
-		buff = bufferPolygons(
-			inputPath = convexHull,
-			outputPath = makeFullPath(tempGDB, row["Name"]) + "_buff")		
-		row["Buff"] = row["Name"] + "_buff"
+		row["Buff"] = row["Name"] + "_Conv"
 		convexHulls.append(row["Name"] + "_Conv")
 	return convexHulls
 
@@ -238,7 +229,7 @@ def makeStudyAreas(intersects):
 	arcpy.AddMessage("Creating study areas...")
 	arcpy.Merge_management(
 		inputs = intersects, 
-		output = makeFullPath(tempGDB, "StudyAreas"))
+		output = makeFullPath(endGDB, "StudyAreas"))
 	deleteFieldLike("FID", "StudyAreas")
 	deleteFieldLike("BUFF", "StudyAreas")
 	deleteFieldLike("_1", "StudyAreas")
@@ -268,7 +259,7 @@ def makeAnalysisPoints(fishnet):
 	APoints = arcpy.SpatialJoin_analysis(
 		target_features = fishnet, 
 		join_features = "StudyAreas", 
-		out_feature_class = makeFullPath(tempGDB, "AnalysisPoints"), 
+		out_feature_class = makeFullPath(endGDB, "AnalysisPoints"), 
 		join_operation = "JOIN_ONE_TO_MANY", 
 		join_type = "KEEP_COMMON")
 	removeLayerFromMap('Fishnet_label')
@@ -407,8 +398,6 @@ testMatchingInputs(endWS.listFiles(), readTable)
 analysisGroups = createAnalysisGroups(readTable)
 
 listConvexHulls = envelopeBuffer(readTable)
-for convexHull in listConvexHulls:
-	removeLayerFromMap(convexHull)
 
 buffGroups = {group:subsetAnalysisGroups(analysisGroups[group],
 	"Buff", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
@@ -421,9 +410,6 @@ for group in buffGroups:
 studyAreas = makeStudyAreas(intersects)
 analysisPoints = makeAnalysisPoints(createFishNet())
 analysisYears = addYearsToAnalysisPoints()
-
-removeLayerLike("_inter")
-removeLayerLike("_buff")
 
 tempWS.setWorkSpace()
 
