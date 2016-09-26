@@ -182,7 +182,7 @@ def subsetAnalysisGroups(analysisGroupList, *fieldStrings):
 
 
 ########################################################################
-#Geoprocessing Toolset for analysis
+#Make Study Areas
 
 def envelopePoints(readTable):
 	arcpy.AddMessage("Running convex hull...")
@@ -213,6 +213,8 @@ def intersectBufferGroups(groupKey):
 		in_features = envelopes, 
 		out_feature_class = makeFullPath(tempGDB, nameIntersect(groupKey)), 
 		join_attributes = "ALL")
+	for layer in arcpy.mapping.ListLayers(mxd):
+		clearSelectedFeatures(layer)
 	return nameIntersect(groupKey)
 
 def makeStudyAreas(intersects):
@@ -378,7 +380,7 @@ SR = SpatialReference(projection)
 SR.setEnvSpatialReference()
 SR.setMapProjection()
 createCommonProjections(inWS) #copy or reproject points into endGDB
-endWS.setWorkSpace() #change workspace to where reprojected points are
+endWS.setWorkSpace() #change workspace to reprojected points
 
 readTable = csvToDictList(metadataTable)
 validateMetaData(readTable)
@@ -390,12 +392,15 @@ envelopePoints(readTable)
 envelopeGroups = {group:subsetAnalysisGroups(analysisGroups[group],
 	"Envelope", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
 arcpy.AddMessage("Intersecting envelopes...")
-intersects = []
+intersects = set()
 for group in envelopeGroups: 
-	inter = intersectBufferGroups(group)
-	intersects.append(inter)
+	if len(envelopeGroups[group]) > 1:
+		inter = intersectBufferGroups(group)
+		intersects.add(inter)
+	else: 
+		intersects.add(envelopeGroups[group][0]['Envelope'])
 
-studyAreas = makeStudyAreas(intersects)
+studyAreas = makeStudyAreas(list(intersects))
 analysisPoints = makeAnalysisPoints(createFishNet())
 analysisYears = addYearsToAnalysisPoints()
 
