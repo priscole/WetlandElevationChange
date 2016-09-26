@@ -184,25 +184,16 @@ def subsetAnalysisGroups(analysisGroupList, *fieldStrings):
 ########################################################################
 #Geoprocessing Toolset for analysis
 
-def calculateConvexHull(inputPath, outputPath, groupFields):
-	return arcpy.MinimumBoundingGeometry_management(
-		in_features = inputPath, 
-		out_feature_class = outputPath, 
-		geometry_type = "CONVEX_HULL", 
-		group_option = "LIST", 
-		group_field = groupFields)
-
-def envelopeBuffer(readTable):
+def envelopePoints(readTable):
 	arcpy.AddMessage("Running convex hull...")
-	convexHulls = []
 	for row in readTable:
-		convexHull = calculateConvexHull(
-			inputPath = makeFullPath(arcpy.env.workspace, row["Name"]),
-			outputPath = makeFullPath(tempGDB, row["Name"]+ "_Conv"),
-			groupFields = groupingFieldsFromMetaDataForConvexHull(row))
-		row["Buff"] = row["Name"] + "_Conv"
-		convexHulls.append(row["Name"] + "_Conv")
-	return convexHulls
+		arcpy.MinimumBoundingGeometry_management(
+			in_features = makeFullPath(arcpy.env.workspace, row["Name"]),
+			out_feature_class = makeFullPath(tempGDB, row["Name"]+ "_Conv"),
+			geometry_type = "CONVEX_HULL", 
+			group_option = "LIST", 
+			group_field = groupingFieldsFromMetaDataForConvexHull(row))
+		row["Envelope"] = row["Name"] + "_Conv"
 
 def nameIntersect(groupKey): 
 	if len(groupKey) > 1:
@@ -210,17 +201,16 @@ def nameIntersect(groupKey):
 	return groupKey[0] + "_inter"
 
 def intersectBufferGroups(groupKey):
-	arcpy.AddMessage("Intersecting envelopes...")
-	buffers = []
+	envelopes = []
 	for f in analysisGroups[groupKey]:
 		fGroup = GroupLayer(f)
-		buffers.append(fGroup.buffName)
+		envelopes.append(fGroup.buffName)
 		arcpy.SelectLayerByAttribute_management(
 			in_layer_or_view = fGroup.buffName,
 			selection_type = "NEW_SELECTION",
 			where_clause = fGroup.selectionWhereClause(groupKey))
 	arcpy.Intersect_analysis(
-		in_features = buffers, 
+		in_features = envelopes, 
 		out_feature_class = makeFullPath(tempGDB, nameIntersect(groupKey)), 
 		join_attributes = "ALL")
 	return nameIntersect(groupKey)
@@ -231,7 +221,6 @@ def makeStudyAreas(intersects):
 		inputs = intersects, 
 		output = makeFullPath(endGDB, "StudyAreas"))
 	deleteFieldLike("FID", "StudyAreas")
-	deleteFieldLike("BUFF", "StudyAreas")
 	deleteFieldLike("_1", "StudyAreas")
 
 ##################################################################################
@@ -296,8 +285,8 @@ class GroupLayer(object):
 			self.date = metaDataDict["Date"]
 		if "ElevationField" in metaDataDict:
 			self.elevationField = metaDataDict["ElevationField"]
-		if "Buff" in metaDataDict:
-			self.buffName = metaDataDict["Buff"]
+		if "Envelope" in metaDataDict:
+			self.buffName = metaDataDict["Envelope"]
 
 	def nameForGroup(self, groupKey):
 		if len(groupKey) > 1:
@@ -397,13 +386,12 @@ testMatchingInputs(endWS.listFiles(), readTable)
 
 analysisGroups = createAnalysisGroups(readTable)
 
-listConvexHulls = envelopeBuffer(readTable)
-
-buffGroups = {group:subsetAnalysisGroups(analysisGroups[group],
-	"Buff", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
-
+envelopePoints(readTable)
+envelopeGroups = {group:subsetAnalysisGroups(analysisGroups[group],
+	"Envelope", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
+arcpy.AddMessage("Intersecting envelopes...")
 intersects = []
-for group in buffGroups: 
+for group in envelopeGroups: 
 	inter = intersectBufferGroups(group)
 	intersects.append(inter)
 
