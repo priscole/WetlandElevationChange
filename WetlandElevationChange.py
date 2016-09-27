@@ -200,13 +200,13 @@ def nameIntersect(groupKey):
 		return groupKey[0] + str(groupKey[1]) + "_inter"
 	return groupKey[0] + "_inter"
 
-def intersectBufferGroups(groupKey):
+def intersectEnvelopeGroups(groupKey):
 	envelopes = []
 	for f in analysisGroups[groupKey]:
 		fGroup = GroupLayer(f)
-		envelopes.append(fGroup.buffName)
+		envelopes.append(fGroup.envelope)
 		arcpy.SelectLayerByAttribute_management(
-			in_layer_or_view = fGroup.buffName,
+			in_layer_or_view = fGroup.envelope,
 			selection_type = "NEW_SELECTION",
 			where_clause = fGroup.selectionWhereClause(groupKey))
 	arcpy.Intersect_analysis(
@@ -288,7 +288,7 @@ class GroupLayer(object):
 		if "ElevationField" in metaDataDict:
 			self.elevationField = metaDataDict["ElevationField"]
 		if "Envelope" in metaDataDict:
-			self.buffName = metaDataDict["Envelope"]
+			self.envelope = metaDataDict["Envelope"]
 
 	def nameForGroup(self, groupKey):
 		if len(groupKey) > 1:
@@ -390,15 +390,20 @@ analysisGroups = createAnalysisGroups(readTable)
 
 envelopePoints(readTable)
 envelopeGroups = {group:subsetAnalysisGroups(analysisGroups[group],
-	"Envelope", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
+	"Name", "Envelope", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
 arcpy.AddMessage("Intersecting envelopes...")
 intersects = set()
-for group in envelopeGroups: 
-	if len(envelopeGroups[group]) > 1:
-		inter = intersectBufferGroups(group)
+for groupKey in envelopeGroups: 
+	if len(envelopeGroups[groupKey]) > 1:
+		inter = intersectEnvelopeGroups(groupKey)
 		intersects.add(inter)
 	else: 
-		intersects.add(envelopeGroups[group][0]['Envelope'])
+		f = GroupLayer(envelopeGroups[groupKey][0])
+		arcpy.SelectLayerByAttribute_management(
+			in_layer_or_view = f.envelope,
+			selection_type = "ADD_TO_SELECTION",
+			where_clause = f.selectionWhereClause(groupKey))
+		intersects.add(f.envelope)
 
 studyAreas = makeStudyAreas(list(intersects))
 analysisPoints = makeAnalysisPoints(createFishNet())
