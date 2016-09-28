@@ -393,17 +393,18 @@ envelopeGroups = {group:subsetAnalysisGroups(analysisGroups[group],
 	"Name", "Envelope", "SAFieldName", "SubSAFieldName") for group in analysisGroups}
 arcpy.AddMessage("Intersecting envelopes...")
 intersects = set()
+expList = []
 for groupKey in envelopeGroups: 
 	if len(envelopeGroups[groupKey]) > 1:
 		inter = intersectEnvelopeGroups(groupKey)
 		intersects.add(inter)
 	else: 
 		f = GroupLayer(envelopeGroups[groupKey][0])
-		arcpy.SelectLayerByAttribute_management(
-			in_layer_or_view = f.envelope,
-			selection_type = "ADD_TO_SELECTION",
-			where_clause = f.selectionWhereClause(groupKey))
+		expList.append((f.envelope, f.selectionWhereClause(groupKey)))
 		intersects.add(f.envelope)
+
+for exp in expList:
+	arcpy.SelectLayerByAttribute_management(exp[0], "ADD_TO_SELECTION", exp[1])
 
 studyAreas = makeStudyAreas(list(intersects))
 analysisPoints = makeAnalysisPoints(createFishNet())
